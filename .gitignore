@@ -1,0 +1,30 @@
+# Python cache and artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.dylib
+*.egg-info/
+*.egg
+.mypy_cache/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual environments / local env files
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Keep results and solutions tracked (do NOT ignore)
+# results/
+# instances/solutions/
+# instances/solutions_no_local/
