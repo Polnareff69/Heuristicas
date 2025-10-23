@@ -8,6 +8,7 @@ import sys
 import random
 import math
 import copy
+import csv
 from collections import defaultdict, Counter
 from typing import Dict, List, Tuple, Optional
 
@@ -29,6 +30,63 @@ def employees_present_today(day: str, days_e: Dict[str, List[str]], employees: L
     if not days_e:
         return employees[:]
     return [e for e in employees if day in days_e.get(e, [])]
+
+def _day_order(instance: dict) -> List[str]:
+    return list(instance.get("Days", []))
+
+def _groups_meeting_day(instance: dict, assignment: Dict[str, Dict[str, Optional[str]]]) -> Dict[str, str]:
+    days = _day_order(instance)
+    employees_g = instance.get("Employees_G", {})
+    result: Dict[str, str] = {}
+    for g, members in employees_g.items():
+        best_day, best_count = None, -1
+        for day in days:
+            cnt = sum(1 for e in members if assignment.get(day, {}).get(e) is not None)
+            if cnt > best_count:
+                best_count = cnt
+                best_day = day
+        result[g] = best_day if best_day is not None else (days[0] if days else "")
+    return result
+
+def _isolated_employees(instance: dict, assignment: Dict[str, Dict[str, Optional[str]]]) -> Tuple[int, Dict[str, int]]:
+    employees_g = instance.get("Employees_G", {})
+    desks_z = instance.get("Desks_Z", {})
+    d2z = build_desk_to_zone(desks_z)
+    days = _day_order(instance)
+    total = 0
+    per_day: Dict[str, int] = {}
+    # mapa empleado->grupo
+    emp2g: Dict[str, Optional[str]] = {}
+    for g, members in employees_g.items():
+        for e in members:
+            emp2g[e] = g
+    for day in days:
+        m = assignment.get(day, {})
+        group_zone = defaultdict(Counter)
+        for e, d in m.items():
+            if d is None:
+                continue
+            g = emp2g.get(e)
+            if not g:
+                continue
+            z = d2z.get(d)
+            if z:
+                group_zone[g][z] += 1
+        isolated = 0
+        for e, d in m.items():
+            if d is None:
+                continue
+            g = emp2g.get(e)
+            if not g:
+                continue
+            z = d2z.get(d)
+            if not z:
+                continue
+            if group_zone[g][z] <= 1:
+                isolated += 1
+        per_day[day] = isolated
+        total += isolated
+    return total, per_day
 
 # ---------- 1) Método constructivo + aleatorización ----------
 def constructive_assignment(instance: dict, seed: int = 42, randomize: bool = True, top_k_pref: int = 3) -> Dict[str, Dict[str, Optional[str]]]:
@@ -310,6 +368,45 @@ def report_assignment(instance: dict, assignment: Dict[str, Dict[str, Optional[s
         total_c3 += c3
     print(f"Totales: C1={total_c1} C2={total_c2} C3={total_c3}")
 
+    # ---------- EXPORTAR A CSV ----------
+def export_csv_template(instance: dict, assignment: Dict[str, Dict[str, Optional[str]]], export_dir: str) -> None:
+    os.makedirs(export_dir, exist_ok=True)
+    days = _day_order(instance)
+    employees = instance.get("Employees", [])
+
+    # 1) EmployeeAssignment.csv
+    emp_file = os.path.join(export_dir, "EmployeeAssignment.csv")
+    with open(emp_file, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["Employee"] + days)
+        for e in employees:
+            row = [e]
+            for day in days:
+                val = assignment.get(day, {}).get(e)
+                row.append(val if val is not None else "none")
+            w.writerow(row)
+
+    # 2) Groups_Meeting_day.csv
+    gmd = _groups_meeting_day(instance, assignment)
+    gmd_file = os.path.join(export_dir, "Groups_Meeting_day.csv")
+    with open(gmd_file, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["Group", "MeetingDay"])
+        for g in instance.get("Employees_G", {}).keys():
+            w.writerow([g, gmd.get(g, "")])
+
+    # 3) Summary.csv
+    valid = 0
+    for day in days:
+        valid += sum(1 for e in employees if assignment.get(day, {}).get(e) is not None)
+    c1, c2, c3 = score_solution_lex(instance, assignment)
+    iso_total, _ = _isolated_employees(instance, assignment)
+    sum_file = os.path.join(export_dir, "Summary.csv")
+    with open(sum_file, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["Valid_assignments", "Employee_preferences", "Isolated_employees", "C2", "C3"])
+        w.writerow([valid, c1, iso_total, c2, c3])
+
 # ---------- MAIN ----------
 if __name__ == "__main__":
     parser = __import__("argparse").ArgumentParser(description="Entrega 2 - Constructivo + Recocido Simulado / ILS")
@@ -331,6 +428,10 @@ if __name__ == "__main__":
     parser.add_argument("--ils-iters", type=int, default=20, help="Iteraciones superiores de ILS")
     parser.add_argument("--ls-iters", type=int, default=500, help="Iteraciones de búsqueda local en cada ILS")
     parser.add_argument("--perturb-k", type=int, default=3, help="Número de swaps en la perturbación ILS")
+    parser.add_argument("--export-csv", action="store_true",
+                        help="Exporta CSVs tipo plantilla (EmployeeAssignment, Groups_Meeting_day, Summary)")
+    parser.add_argument("--export-dir", default=None,
+                        help="Carpeta para exportación CSV (por defecto usa --outdir/csv_export)")
     args = parser.parse_args()
 
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -419,5 +520,14 @@ if __name__ == "__main__":
             print("No pude escribir el archivo de salida:", e)
             print("Directorio existe?", os.path.isdir(os.path.dirname(out_file)), "->", os.path.dirname(out_file))
             raise
+
+    # Exportar CSVs si se solicitó
+    if args.export_csv:
+        export_dir = args.export_dir if args.export_dir else os.path.join(out_dir, "csv_export")
+        export_dir = os.path.expanduser(os.path.expandvars(export_dir))
+        if not os.path.isabs(export_dir):
+            export_dir = os.path.join(BASE_DIR, export_dir)
+        export_csv_template(instance, assignment, export_dir)
+        print("-CSVs exportados en:", export_dir)
 
     print("Fin.")

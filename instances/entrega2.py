@@ -133,6 +133,21 @@ def generar_vecino_swap(assignment, instance):
     new[day][a], new[day][b] = new[day][b], new[day][a]
     return new
 
+def generar_vecino_swap_simple(assignment):
+    """Versión compatible con run_experiments.py"""
+    days = list(assignment.keys())
+    if not days:
+        return copy.deepcopy(assignment)
+    day = random.choice(days)
+    employees = list(assignment[day].keys())
+    new = {d: m.copy() for d, m in assignment.items()}
+    if len(employees) < 2:
+        return new
+    a, b = random.sample(employees, 2)
+    new[day][a], new[day][b] = new[day][b], new[day][a]
+    return new
+
+
 def simulated_annealing(solucion_inicial, evaluar, generar_vecino,
                         T_inicial=200.0, T_final=1.0, alpha=0.95, iter_por_temp=100):
     S = copy.deepcopy(solucion_inicial)
