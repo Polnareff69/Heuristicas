@@ -2,6 +2,7 @@ import argparse
 import csv
 import os
 from collections import defaultdict
+import statistics
 
 
 def lex_better(a, b):
@@ -11,6 +12,21 @@ def lex_better(a, b):
     if a[1] != b[1]:
         return a[1] > b[1]
     return a[2] > b[2]
+
+def map_method_label(method: str) -> str:
+    """Mapea variantes de nombre de método a 'SA' o 'ILS' cuando corresponde."""
+    m = (method or "").lower()
+    if "ils" in m:
+        return "ILS"
+    if "sa" in m or "sim" in m or "recoc" in m or "anneal" in m:
+        return "SA"
+    # mapear etiquetas del experimento: local -> ILS, no_local -> SA
+    if m == "local":
+        return "ILS"
+    if m == "no_local" or m == "no-local":
+        return "SA"
+    # conservar otros nombres tal cual (por compatibilidad)
+    return method
 
 
 def main():
@@ -26,11 +42,14 @@ def main():
         for row in r:
             row["C1"] = int(row["C1"]) ; row["C2"] = int(row["C2"]) ; row["C3"] = int(row["C3"])
             row["iters"] = int(row["iters"]) ; row["top_k"] = int(row["top_k"]) ; row["runtime_sec"] = float(row["runtime_sec"])
+            # método mapeado a SA/ILS cuando aplique
+            row["method_mapped"] = map_method_label(row.get("method", ""))
             rows.append(row)
 
     by_key = defaultdict(list)  # (instance, method) -> rows
     for row in rows:
-        by_key[(row["instance"], row["method"])].append(row)
+        # agrupar por método mapeado (SA / ILS / otros)
+        by_key[(row["instance"], row["method_mapped"])].append(row)
 
     os.makedirs(os.path.dirname(args.out_csv), exist_ok=True)
     # Write CSV summary
@@ -42,24 +61,18 @@ def main():
         summaries = {}
         for (inst, method), lst in sorted(by_key.items()):
             n = len(lst)
-            avg_c1 = sum(r["C1"] for r in lst) / n
-            avg_c2 = sum(r["C2"] for r in lst) / n
-            avg_c3 = sum(r["C3"] for r in lst) / n
-            avg_rt = sum(r["runtime_sec"] for r in lst) / n
-            best = lst[0]
-            for r in lst[1:]:
-                if lex_better((r["C1"], r["C2"], r["C3"]), (best["C1"], best["C2"], best["C3"])):
-                    best = r
+            avg_c1 = sum(int(r["C1"]) for r in lst) / n
+            avg_c2 = sum(int(r["C2"]) for r in lst) / n
+            avg_c3 = sum(int(r["C3"]) for r in lst) / n
+            avg_rt = sum(float(r["runtime_sec"]) for r in lst) / n
+            # elegir mejor por lexicográfico (C1, C2, C3)
+            best = max(lst, key=lambda r: (int(r["C1"]), int(r["C2"]), int(r["C3"])))
             w.writerow([
                 inst, method, n,
                 round(avg_c1, 3), round(avg_c2, 3), round(avg_c3, 3),
-                best["C1"], best["C2"], best["C3"], round(avg_rt, 6), best["seed"]
+                int(best["C1"]), int(best["C2"]), int(best["C3"]), round(avg_rt, 6), best.get("seed", "")
             ])
-            summaries[(inst, method)] = {
-                "avg": (avg_c1, avg_c2, avg_c3),
-                "best": (best["C1"], best["C2"], best["C3"]),
-                "avg_rt": avg_rt,
-            }
+            summaries[(inst, method)] = {"avg": (avg_c1, avg_c2, avg_c3), "best": (int(best["C1"]), int(best["C2"]), int(best["C3"])), "avg_rt": avg_rt}
 
     # Write Markdown summary for quick view
     with open(args.out_md, "w", encoding="utf-8") as f:
@@ -67,22 +80,25 @@ def main():
         insts = sorted({inst for (inst, _) in summaries.keys()})
         for inst in insts:
             f.write(f"**{inst}**\n")
-            f.write("- local:   ")
-            s_local = summaries.get((inst, "local"))
-            if s_local:
-                f.write(f"avg={tuple(round(x,3) for x in s_local['avg'])}, best={s_local['best']}, avg_time={round(s_local['avg_rt'],6)}s\n")
-            else:
-                f.write("(sin corridas)\n")
-            f.write("- no_local: ")
-            s_nol = summaries.get((inst, "no_local"))
-            if s_nol:
-                f.write(f"avg={tuple(round(x,3) for x in s_nol['avg'])}, best={s_nol['best']}, avg_time={round(s_nol['avg_rt'],6)}s\n")
-            else:
-                f.write("(sin corridas)\n")
-            # Conclusión breve por instancia
-            if s_local and s_nol:
-                better = "local" if lex_better(s_local["avg"], s_nol["avg"]) else "no_local"
-                f.write(f"- Conclusión: promedio lexicográfico favorece {better}.\n\n")
+            # listar métodos encontrados para esta instancia (ya mapeados a SA/ILS cuando aplique)
+            methods = sorted([m for (i, m) in summaries.keys() if i == inst])
+            for m in methods:
+                s = summaries.get((inst, m))
+                f.write(f"- {m}: ")
+                if s:
+                    f.write(f"avg={tuple(round(x,3) for x in s['avg'])}, best={s['best']}, avg_time={round(s['avg_rt'],6)}s\n")
+                else:
+                    f.write("(sin corridas)\n")
+            # Si existen SA e ILS, comparar y dar conclusión; si sólo uno está presente indicarlo
+            s_sa = summaries.get((inst, "SA"))
+            s_ils = summaries.get((inst, "ILS"))
+            if s_sa or s_ils:
+                if s_sa and s_ils:
+                    better = "SA" if lex_better(s_sa["avg"], s_ils["avg"]) else "ILS"
+                    f.write(f"- Conclusión: promedio lexicográfico favorece {better}.\n\n")
+                else:
+                    present = "SA" if s_sa else "ILS"
+                    f.write(f"- Conclusión: sólo hay corridas para {present}.\n\n")
         
     print("Wrote:", args.out_csv)
     print("Wrote:", args.out_md)

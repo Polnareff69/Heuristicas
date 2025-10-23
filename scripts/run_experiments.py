@@ -7,9 +7,15 @@ import time
 from importlib.machinery import SourceFileLoader
 
 
-def load_algo_module():
-    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "instances", "entrega1.py")
-    return SourceFileLoader("entrega1_mod", path).load_module()
+def load_module_from(path: str, name: str):
+    path = os.path.normpath(path)
+    if not os.path.isabs(path):
+        # resolve relative to repository root (one level above scripts/)
+        base = os.path.dirname(os.path.dirname(__file__))
+        path = os.path.join(base, path)
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+    return SourceFileLoader(name, path).load_module()
 
 
 def parse_seeds(seeds_arg: str, num_seeds: int, start: int) -> list[int]:
@@ -28,9 +34,21 @@ def main():
     parser.add_argument("--num-seeds", type=int, default=5)
     parser.add_argument("--seed-start", type=int, default=1)
     parser.add_argument("--out", default="results/experiments.csv", help="CSV output path")
+    parser.add_argument("--algo-ils", default="../instances/entrega2_ILS.py", help="Path to ILS module (used for 'local')")
+    parser.add_argument("--algo-sa", default="../instances/entrega2.py", help="Path to SA module (used for 'no_local')")
     args = parser.parse_args()
 
-    mod = load_algo_module()
+    # Load algorithm modules (ILS and SA)
+    try:
+        ils_mod = load_module_from(args.algo_ils, "ils_mod")
+    except Exception as e:
+        print("Warning: could not load ILS module:", e)
+        ils_mod = None
+    try:
+        sa_mod = load_module_from(args.algo_sa, "sa_mod")
+    except Exception as e:
+        print("Warning: could not load SA module:", e)
+        sa_mod = None
 
     inst_files = sorted(glob.glob(args.instances_glob))
     if not inst_files:
@@ -42,7 +60,7 @@ def main():
 
     header = [
         "instance",
-        "method",
+        "method",   # will be 'ILS' or 'SA'
         "seed",
         "iters",
         "top_k",
@@ -67,19 +85,58 @@ def main():
                 for seed in seeds:
                     t0 = time.perf_counter()
 
-                    # Constructive
-                    assignment = mod.constructive_assignment(
-                        instance, seed=seed, randomize=True, top_k_pref=args.top_k
-                    )
-                    # Local search
+                    # select module and label
                     if method == "local":
-                        assignment = mod.local_search_swaps(
-                            instance, assignment, iters=args.iters, seed=seed
+                        mod = ils_mod
+                        method_label = "ILS"
+                    else:
+                        mod = sa_mod
+                        method_label = "SA"
+
+                    if mod is None:
+                        print(f"Skipping {base} {method_label}: module not available")
+                        continue
+
+                    # Constructive (expect constructive_assignment present)
+                    try:
+                        assignment = mod.constructive_assignment(
+                            instance, seed=seed, randomize=True, top_k_pref=args.top_k
                         )
-                    c1, c2, c3 = mod.score_solution_lex(instance, assignment)
+                    except Exception as e:
+                        print("Constructive failed for", base, method_label, ":", e)
+                        continue
+
+                    # Apply search depending on method
+                    try:
+                        if method == "local":
+                            # prefer local_search_swaps for ILS
+                            if hasattr(mod, "local_search_swaps"):
+                                assignment = mod.local_search_swaps(instance, assignment, iters=args.iters, seed=seed)
+                        else:
+                            # prefer simulated_annealing for SA
+                            if hasattr(mod, "simulated_annealing"):
+                                # try common signatures; modules should adapt
+                                try:
+                                    assignment = mod.simulated_annealing(assignment, mod.score_solution_lex, getattr(mod, "generar_vecino_swap_simple", None),
+                                                                         T_inicial=200.0, T_final=1.0, alpha=0.95, iter_por_temp=args.iters)
+                                except Exception:
+                                    try:
+                                        assignment = mod.simulated_annealing(assignment, iter_por_temp=args.iters)
+                                    except Exception:
+                                        assignment = mod.simulated_annealing(assignment, args.iters)
+                    except Exception as e:
+                        print("Search failed for", base, method_label, ":", e)
+
+                    # Score
+                    try:
+                        c1, c2, c3 = mod.score_solution_lex(instance, assignment)
+                    except Exception as e:
+                        print("Scoring failed for", base, method_label, ":", e)
+                        c1 = c2 = c3 = 0
+
                     dt = time.perf_counter() - t0
 
-                    w.writerow([base, method, seed, args.iters if method == "local" else 0, args.top_k, c1, c2, c3, round(dt, 6)])
+                    w.writerow([base, method_label, seed, args.iters if method == "local" else args.iters, args.top_k, c1, c2, c3, round(dt, 6)])
                     f.flush()
 
     print("Wrote:", args.out)

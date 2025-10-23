@@ -1,19 +1,17 @@
 **Proyecto Heurística – Asignación de Puestos en Trabajos Híbridos**
 
-- Autoría del código base: ver `instances/entrega1.py` (Universidad EAFIT, 2025)
-- Este repo contiene un heurístico con construcción aleatorizada y mejora local para asignar empleados a escritorios por día, respetando preferencias y promoviendo cohesión de grupos y balance por zonas.
+- Autoría del código base: ver `instances/entrega2.py` & `instances/entrega2_ILS.py` (Universidad EAFIT, 2025)
+- Este repo contiene un heurístico con construcción aleatorizada, recocido simulado y ILS como metaheuristico de busqueda local
 
 **Contenido**
 - ¿Qué resuelve? y formato de instancias
-- Método constructivo + aleatorización (y pseudocódigo)
 - Puntaje y análisis lexicográfico
-- Búsqueda local por swaps (y pseudocódigo)
+- SA como sustituto (y pseudocódigo)
+- ILS como metaheuristico por swaps (y pseudocódigo)
 - Validación, reporte y exportación a plantilla (CSV)
-- Uso del CLI con ejemplos (Windows y Linux/macOS)
 - Experimentos y análisis de resultados (scripts incluidos)
-- Resultados de referencia (con vs sin búsqueda local)
-- Reproducibilidad, código y póster
-- Troubleshooting (Windows)
+
+
 
 **Requisitos**
 - Python 3.8 o superior.
@@ -39,35 +37,6 @@
   - `Desks_E`: mapa empleado → lista de escritorios preferidos.
   - `Days_E`: mapa empleado → días en los que asiste (si falta, se asume todos los días).
 
-**Método Constructivo + Aleatorización**
-- Para cada día:
-  - Determina empleados presentes (`Days_E`).
-  - Recorre empleados (orden aleatorio con semilla `--seed`).
-  - Intenta asignar un escritorio disponible siguiendo esta prioridad:
-    - Preferidos del empleado, de la zona predominante de su grupo ese día (si la hay).
-    - Preferidos del empleado (sin filtrar por zona), top-k aleatorizado (`--top-k`).
-    - Cualquier escritorio libre, idealmente en la zona predominante de su grupo si existe.
-  - Mantiene el conteo de zonas ocupadas por grupo para fomentar proximidad.
-
-- Pseudocódigo (constructivo):
-  - Dado `Days`, `Employees`, `Desks`, `Desks_E`, `Employees_G`, `Desks_Z`:
-  - Para cada día d en Days:
-    - `present = {e ∈ Employees | d ∈ Days_E[e]}` (o todos si no hay Days_E)
-    - Mezclar `present` con semilla (`--seed`)
-    - `used = ∅` y `group_zone[d][g][z] = 0` para todo grupo g, zona z
-    - Para cada empleado e en `present`:
-      - `g = grupo(e)`; `z* = argmax_z group_zone[d][g][z]` si existe
-      - `P = [p ∈ Desks_E[e] | p ∉ used]`
-      - Si `z*` existe, `Pz = [p ∈ P | zone(p) = z*]` sino `Pz = P`
-      - Elegir `desk` de: `Pz` (aleatorio en top-k), luego `P` (aleatorio en top-k), luego cualquier libre (idealmente zona z*)
-      - Asignar `assign[d][e] = desk` o `None` si no hay
-      - Marcar `desk` en `used` y actualizar `group_zone[d][g][zone(desk)]++`
-    - Completar con `None` a empleados no presentes
-
-- Método aleatorizado: el constructivo anterior es la base; la aleatorización se controla por:
-  - El orden aleatorio de empleados presentes (semilla `--seed`).
-  - La elección aleatoria dentro del `top-k` de preferencias disponibles (`--top-k`).
-  - Esto induce diversidad en soluciones de partida, útil para la búsqueda local.
 
 **Puntaje y Análisis Lexicográfico**
 - `score_solution_lex(instance, assignment) -> (C1, C2, C3)`:
@@ -76,20 +45,125 @@
   - C3: balance por día: `-(max_ocupación_zona - min_ocupación_zona)`.
 - Comparación lexicográfica: una solución A es mejor que B si `C1_A > C1_B`, o si empatan en C1 y `C2_A > C2_B`, o si empatan en C1 y C2 y `C3_A > C3_B`.
 
-**Búsqueda Local Por Swaps**
-- `local_search_swaps`: por iteraciones (`--iters`), elige un día aleatorio y realiza un swap entre dos empleados asignados ese día.
-- Acepta el movimiento si mejora el puntaje lexicográfico.
-- Búsqueda local activada por defecto; se puede desactivar con `--no-local-search`.
+**SA**
+Como sustituto a la busqueda local implementamos un SA debido a que en la entrega anterior realizamos una busqueda local. Acontinuacion la explicacion del SA aplicada al problema de asignación de empleados y días.
 
-- Pseudocódigo (búsqueda local):
-  - Entrada: `assign`, `iters`, `seed`
-  - `best = assign`; `score_best = score(best)`
-  - Repetir `iters` veces:
-    - Muestrear día `d` con semilla
-    - `A = {e | best[d][e] ≠ None}`; si `|A| < 2`, continuar
-    - Tomar `a, b` al azar en `A` y proponer swap: `new = best` con `new[d][a] ↔ new[d][b]`
-    - Si `score(new) > score_best` (lexicográfico): `best = new`; `score_best = score(new)`
-  - Devolver `best`
+
+ def generar_vecino_swap(assignment, instance)
+
+Esta función genera una solución vecina a partir de una solución actual intercambiando (swap) asignaciones de dos empleados en un mismo día.
+
+- Se obtiene la lista de días y empleados desde la instancia del problema.
+- Se selecciona un día aleatorio d ∈ Days.
+- Se eligen aleatoriamente dos empleados a y b asignados en ese día.
+- Se intercambian sus asignaciones, produciendo una nueva solución vecina.
+- Se realiza un intercambio entre dos empleados en un día seleccionado al azar.
+
+ def simulated_annealing(...)
+
+- Esta función implementa el algoritmo de recocido    simulado, el cual busca escapar de óptimos locales mediante la aceptación controlada de soluciones peores según una temperatura decreciente.
+
+- Los parametros principales para el SA son: Tinicial, Tfinal, flag (para detenerse), cooldown
+
+- Se parte de la solucion incial y su evaluacion, de ahi se repite el siguiente ciclo: Se genera vecino, se evalua el cambio de calidad, si la nueva solucion es mejor se acepta sino se acepta con probabilidad. Actualizacion de temperatura y evaluacion de criterio de parada.
+
+ Pseudocódigo resumido
+S = solucion_inicial
+mejor = S
+T = T_inicial
+
+while T > T_final:
+    for i in range(iter_por_temp):
+        S' = generar_vecino(S)
+        Δ = evaluar(S') - evaluar(S)
+        if Δ > 0 or random() < exp(Δ / T):
+            S = S'
+            if evaluar(S) > evaluar(mejor):
+                mejor = S
+    T *= alpha
+
+
+**ILS**
+- A continuación, se describe cómo funciona el ILS en el contexto del problema de asignación de empleados y escritorios por día.
+
+  def local_search_swaps_hillclimb(instance, assignment, evaluar, iters=500, seed=None)
+
+- Esta función aplica una búsqueda local tipo hill climbing para mejorar la solución actual:
+
+- Se copia la asignación inicial y se evalúa su puntaje con evaluar().
+
+- En cada iteración:
+
+- Se selecciona un día aleatorio dentro de los disponibles (Days).
+
+- Se eligen dos empleados asignados ese día y se intercambian sus escritorios.
+
+- Se evalúa la nueva solución; si el puntaje mejora, se acepta el cambio.
+
+- Este proceso se repite un número fijo de veces (iters), intensificando la búsqueda en el vecindario inmediato de la solución actual.
+
+- El resultado es una solución localmente óptima respecto a los intercambios (swaps).
+
+  def perturbation_k_swaps(assignment, instance, k=3, seed=None)
+
+- Esta función introduce una perturbación controlada en la solución actual para escapar de óptimos locales:
+
+- Realiza k intercambios aleatorios entre empleados en días aleatorios.
+
+- El objetivo es modificar ligeramente la estructura de la solución para que la siguiente búsqueda local explore una región diferente del espacio de soluciones.
+
+- Este mecanismo mantiene la diversidad sin reiniciar completamente la búsqueda.
+
+  def iterated_local_search(instance, initial, evaluar, local_search_func, perturb_func, ...)
+
+Esta función implementa el esquema global del ILS.
+Su flujo de ejecución es el siguiente:
+
+Búsqueda local inicial:
+Se aplica local_search_func (hill climbing) sobre la solución constructiva inicial para obtener una primera solución mejorada.
+
+Iteraciones ILS:
+En cada ciclo:
+
+Se perturba la mejor solución actual mediante perturb_func (por defecto k=3 intercambios).
+
+Se aplica nuevamente la búsqueda local a la solución perturbada.
+
+Se evalúa la nueva solución (val_p) y si supera a la mejor conocida (best_val), se actualiza la solución óptima global.
+
+En caso contrario, se mantiene la actual pero se continúa explorando desde la perturbada.
+
+Criterio de parada:
+Se repite el ciclo hasta alcanzar el número máximo de iteraciones (max_iters).
+
+Resultado:
+Devuelve la mejor asignación encontrada tras todas las perturbaciones y búsquedas locales.
+
+Pseudocódigo resumido
+S = local_search(initial)   # mejora inicial
+best = S
+best_val = evaluar(best)
+
+for i in range(max_iters):
+    S_p = perturbation(S, k)         # diversificación
+    S_p = local_search(S_p)          # intensificación
+    val_p = evaluar(S_p)
+    if val_p > best_val:             # mejora global
+        best = copy(S_p)
+        best_val = val_p
+        S = S_p
+    else:
+        S = S_p                      # continuar explorando
+
+return best
+
+
+En resumen, el ILS combina fases de búsqueda local intensiva y perturbaciones controladas para mantener un equilibrio entre mejora continua y exploración global.
+Aplicado al problema de asignación de empleados y escritorios, el algoritmo logra soluciones de alta calidad:
+
+La ILS mejora la coherencia diaria de asignaciones.
+
+Las perturbaciones permiten encontrar nuevas combinaciones de días y empleados que satisfacen mejor las preferencias y cohesionan los grupos.
 
 **Validación y Reporte**
 - `--validate`: verifica por día empleados faltantes, escritorios inexistentes y duplicados; si hay errores, sale con código 2.
@@ -148,6 +222,23 @@
   - Totales: C1=38 C2=34 C3=-7
 
 **Experimentos y Análisis de Resultados**
+En términos de tiempo de cómputo, el método de la primera entrega (heurística constructiva + búsqueda local) mostró que sin mejora local la ejecución fue casi instantánea (≈ 0.0003 s en la instancia 1), mientras que al aplicar la búsqueda local aumentó a ≈ 0.02 s.
+Esto demuestra que la fase de mejora local introduce un coste moderado, pero sigue siendo muy bajo en relación con el tamaño del problema, lo cual es favorable para aplicaciones en tiempo real.
+
+En la segunda entrega, el enfoque ILS (Iterated Local Search) elevó el tiempo promedio por instancia a alrededor de 0.15 s, debido a la ejecución repetida de la búsqueda local con perturbaciones. Sin embargo, este coste adicional permitió una exploración más profunda del espacio de soluciones y una mayor robustez frente a las condiciones iniciales.
+
+En cuanto a la calidad de las soluciones, en la primera entrega el paso de sin búsqueda local → con búsqueda local permitió mejorar C1 (preferencias de empleados) de 34 → 38, a costa de una ligera reducción en C2 (cohesión de grupo) de 38 → 34, manteniendo C3 (balance de zonas) prácticamente constante.
+Dado que la comparación se realiza de forma lexicográfica, el aumento en C1 justifica la pérdida marginal en C2, por lo que la versión mejorada de la segunda entrega resulta preferible.
+
+En la segunda entrega, el método ILS alcanzó valores aún mayores: C1 = 39, C2 = 36 y C3 = –7, mostrando un mejor cumplimiento de preferencias y una distribución más estable. Además, la variabilidad entre ejecuciones fue menor, lo que indica que el método escala correctamente y produce soluciones de buena calidad de manera consistente.
+
+En síntesis, el desempeño global obtenido es muy positivo: la relación entre tiempo y calidad está bien equilibrada.
+El aumento de tiempo asociado a los métodos (SA e ILS) es bajo comparado con la mejora significativa en la calidad de las soluciones.
+Aunque existe margen de mejora —por ejemplo, aumentar el número de iteraciones, diseñar operadores de intercambio más informados o realizar un análisis de sensibilidad sobre la sedd y el parámetro top-k—, los resultados demuestran que el modelo híbrido desarrollado cumple los objetivos del proyecto del curso de forma eficiente.
+
+Aspecto a mejorar: Me gustaria estudiar la escalabilidad del método en instancias de mayor tamaño y ajustar el equilibrio entre exploración y explotación, con el fin de seguir reduciendo el tiempo de cómputo sin sacrificar la calidad de las soluciones ademas de organizar mejor los archivos para proximas entregas.
+
+
 - Se incluyen scripts para ejecutar barridos y resumir resultados:
   - `scripts/run_experiments.py`: recorre instancias y semillas y guarda `results/experiments.csv` con columnas `instance,method,seed,iters,top_k,C1,C2,C3,runtime_sec`.
   - `scripts/summarize_results.py`: genera `results/summary.csv` y `results/summary.md` con promedios y mejor corrida por instancia y método.
@@ -157,65 +248,28 @@
 - Muestra de resumen real obtenido:
   - instance1.json: local avg=(39.0, 31.667, -7.667) vs no_local avg=(36.667, 31.667, -7.667); tiempo promedio local≈0.022s, no_local≈0.0003s; conclusión: promedio lexicográfico favorece local.
 
-**Póster y Gráficas (C1/C2/C3 y tiempo)**
-- Los gráficos y un borrador de póster se generan a partir de `results/summary.csv`.
-- Pasos:
-  1) Asegúrate de tener resultados: ejecuta los scripts de Experimentos y Resumen (sección anterior).
-  2) Instala `matplotlib` (opcional pero necesario para imágenes):
-     - Windows: `python -m pip install matplotlib`
-  3) Genera póster + imágenes: `python scripts/make_poster_assets.py`
-- Archivos generados:
-  - `results/poster.md`: texto base del póster (método, tabla comparativa, pseudocódigo, conclusiones y links a imágenes).
-  - `results/plots/avg_C1.png`, `avg_C2.png`, `avg_C3.png`, `avg_time.png`.
-- Si no ves imágenes, revisa `results/plots/NO_PLOTS.txt` (explica el motivo, p.ej., falta `matplotlib`).
 
 **Guía Paso a Paso (Windows – VS Code)**
+- Ejecutar recocido simulado por instancia
+ python entrega2_ILS.py --in instance1.json --outdir results_sa --iters 500 --top-k 3 --tinit 200 --tfinal 1 --alpha 0.95 --report --validate --export-csv
+
+- Ejecutar ILS por instancia 
+python entrega2_ILS.py --in instance1.json --outdir results_ils --ils --ils-iters 20 --ls-iters 500 --perturb-k 3 --top-k 3 --report --validate --export-csv
+
+
+- Con el siguiente comando se genera un resultado y su respectivo CSV.
+cd "C:\Users\Polnareff\Desktop\Heuristikaka\Heuristicas\scripts"
+python summarize_results.py --in "..\results\experiments.csv" --out-csv "..\results\summary.csv" --out-md "..\results\summary.md"
+
 - Abrir VS Code en la carpeta del repo > Terminal > New Terminal.
 - Prueba rápida (una instancia, con local):
   - `python .\instances\entrega1.py --in instance1.json --report --validate --export-csv`
 - Experimentos completos y resúmenes:
   - `python .\scripts\run_experiments.py --instances-glob "instances\instance*.json" --num-seeds 10 --seed-start 1 --methods both --iters 1200 --top-k 3 --out results\experiments.csv`
   - `python .\scripts\summarize_results.py --in results\experiments.csv --out-csv results\summary.csv --out-md results\summary.md`
-- Póster + gráficas:
-  - (Primero) `python -m pip install matplotlib`
-  - (Luego) `python .\scripts\make_poster_assets.py`
 - Limpieza de salidas (opcional):
   - `rmdir /s /q results` y `rmdir /s /q instances\solutions` (CMD) o
   - `Remove-Item -Recurse -Force .\results, .\instances\solutions, .\instances\solutions_no_local` (PowerShell)
 
-**Como Clonar y Correr (para terceros)**
-- Clonar el repositorio:
-  - Windows (PowerShell): `git clone https://github.com/<usuario>/<repo>.git`
-  - `cd <repo>`
-- (Opcional) Instalar `matplotlib` para gráficas:
-  - `python -m pip install matplotlib`
-- Ejecutar una instancia con exportación CSV:
-  - `python .\instances\entrega1.py --in instance1.json --report --validate --export-csv`
-- Experimentos (todas las instancias) y resúmenes:
-  - `python .\scripts\run_experiments.py --instances-glob "instances\instance*.json" --num-seeds 10 --seed-start 1 --methods both --iters 1200 --top-k 3 --out results\experiments.csv`
-  - `python .\scripts\summarize_results.py --in results\experiments.csv --out-csv results\summary.csv --out-md results\summary.md`
-- Póster y gráficas:
-  - `python .\scripts\make_poster_assets.py`
-  - Abrir `results\poster.md` y `results\plots\*.png`
 
-**Reproducibilidad, Código y Póster**
-- Reproducibilidad: usa `--seed` para fijar el orden aleatorio; con la misma semilla, `--top-k` e `--iters` se reproducen los resultados. Guarda el comando y semilla junto a las soluciones.
-- Código: el entregable principal es `instances/entrega1.py`. Se ejecuta desde CLI y no requiere dependencias externas. Scripts de experimentación en `scripts/`.
-- Póster: sugiere incluir secciones de método constructivo (con pseudocódigo), variante aleatorizada, evaluación lexicográfica, búsqueda local, tabla de resultados (promedios y mejores por instancia), conclusiones y referencias. Puedes copiar tablas desde `results/summary.csv` y `results/summary.md`.
-
-**Troubleshooting (Windows)**
-- Si aparece un error al escribir en `instances\solutions`, revisa “Carpetas controladas” (Windows Defender) y permite acceso a `python.exe` o usa otra carpeta con `--outdir "%TEMP%\heuristica_out"`.
-- Si alguna app mantiene abierto el archivo de salida, ejecuta con `--stdout` y redirige a un nuevo archivo.
-
-**Estructura Del Código**
-- `constructive_assignment`: construcción aleatorizada por día con sesgo de cohesión por zona de grupo.
-- `score_solution_lex`: cálculo del puntaje `(C1, C2, C3)` y base para comparación lexicográfica.
-- `local_search_swaps`: mejora local por intercambios entre empleados del mismo día.
-- `validate_assignment`: verificación de duplicados, empleados faltantes y escritorios inexistentes.
-- `report_assignment`: resumen por día y totales de C1/C2/C3.
-- `export_csv_template`: exporta CSVs equivalentes a la plantilla Excel (tres hojas).
-- `scripts/run_experiments.py`: barridos de semillas e instancias.
-- `scripts/summarize_results.py`: genera resúmenes CSV/MD.
-- `scripts/make_poster_assets.py`: genera `results/poster.md` y las gráficas `results/plots/*.png` a partir de `results/summary.csv`.
-#   H e u r i s t i c a s  
- # Heuristicas
+# Heuristicas
